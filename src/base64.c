@@ -10,6 +10,7 @@
 
 /* Include architecture-specific implementations */
 #include "arch/neon-base64.h"
+#include "arch/sse-base64.h"
 
 #if defined(__aarch64__) || defined(__arm__)
 /* ARM/ARM64: Check for NEON support */
@@ -76,6 +77,41 @@ static bool cpu_has_neon(void)
 }
 #endif /* __aarch64__ || __arm__ */
 
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+/* x86/x86_64: Check for SSE/SSSE3 support */
+
+#ifdef _MSC_VER
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
+
+static bool cpu_has_ssse3(void)
+{
+#ifdef _MSC_VER
+    int cpu_info[4];
+    __cpuid(cpu_info, 1);
+    /* ECX bit 9: SSSE3 */
+    return (cpu_info[2] & (1 << 9)) != 0;
+#else
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        /* ECX bit 9: SSSE3 */
+        return (ecx & (1 << 9)) != 0;
+    }
+    return false;
+#endif
+}
+
+#else
+/* Non-x86 platforms: no SSSE3 */
+static bool cpu_has_ssse3(void)
+{
+    return false;
+}
+#endif /* __x86_64__ || _M_X64 || __i386__ || _M_IX86 */
+
 /* Runtime selection of best implementation */
 static base64_encode_func_t select_best_impl(void)
 {
@@ -83,12 +119,22 @@ static base64_encode_func_t select_best_impl(void)
     static base64_encode_func_t best_impl = NULL;
 
     if (!initialized) {
+        /* Priority: NEON > SSE/SSSE3 > Scalar */
         if (cpu_has_neon()) {
 #if defined(__aarch64__) || defined(__ARM_NEON)
             /* Use NEON SIMD implementation (simdutf algorithm) */
             best_impl = base64_encode_neon;
 #else
             /* NEON not available, fallback to scalar */
+            best_impl = base64_encode_scalar;
+#endif
+        } else if (cpu_has_ssse3()) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+            /* Use SSE/SSSE3 SIMD implementation */
+            best_impl = base64_encode_sse;
+#else
+            /* SSE not available, fallback to scalar */
             best_impl = base64_encode_scalar;
 #endif
         } else {
@@ -118,6 +164,11 @@ const char *base64_get_impl_name(void)
 #if defined(__aarch64__) || defined(__ARM_NEON)
     if (impl == base64_encode_neon)
         return "NEON";
+#endif
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+    if (impl == base64_encode_sse)
+        return "SSE/SSSE3";
 #endif
     if (impl == base64_encode_scalar)
         return "Scalar";

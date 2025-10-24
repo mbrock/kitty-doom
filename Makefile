@@ -30,12 +30,22 @@ LDLIBS := -lpthread
 
 # NEON-specific flags (enabled on ARM/ARM64)
 # The NEON implementation will only be active if __aarch64__ or __ARM_NEON is defined
-NEON_CFLAGS :=
+NEON_FLAGS :=
 ifeq ($(shell uname -m),aarch64)
-    NEON_CFLAGS := -march=armv8-a+simd
+    NEON_FLAGS := -march=armv8-a+simd
 else ifeq ($(shell uname -m),arm64)
-    NEON_CFLAGS := -march=armv8-a+simd
+    NEON_FLAGS := -march=armv8-a+simd
 endif
+
+# SSE/SSSE3-specific flags (enabled on x86/x86_64)
+SSE_FLAGS :=
+ifeq ($(shell uname -m),x86_64)
+    SSE_FLAGS := -mssse3
+else ifeq ($(shell uname -m),i686)
+    SSE_FLAGS := -mssse3
+endif
+
+ARCH_FLAGS = $(NEON_FLAGS) $(SSE_FLAGS)
 
 # Check if compiler supports a specific flag
 check_flag = $(shell $(CC) $(1) -E -xc /dev/null > /dev/null 2>&1 && echo $(1))
@@ -99,11 +109,11 @@ bench-framediff: $(TEST_OUT)/bench-framediff
 # Build test binaries
 $(TEST_OUT)/bench-base64: $(TEST_DIR)/bench-base64.c src/base64.c | $(TEST_OUT)
 	$(VECHO) "  CC\t$@\n"
-	$(Q)$(CC) $(CFLAGS) $(NEON_CFLAGS) -o $@ $^
+	$(Q)$(CC) $(CFLAGS) $(ARCH_FLAGS) -o $@ $^
 
 $(TEST_OUT)/bench-framediff: $(TEST_DIR)/bench-framediff.c | $(TEST_OUT)
 	$(VECHO) "  CC\t$@\n"
-	$(Q)$(CC) $(CFLAGS) $(NEON_CFLAGS) -o $@ $<
+	$(Q)$(CC) $(CFLAGS) $(NEON_FLAGS) -o $@ $<
 
 $(TEST_OUT):
 	$(Q)mkdir -p $(TEST_OUT)
@@ -123,11 +133,11 @@ $(OUT)/main.o: src/main.c $(PUREDOOM_HEADER) | $(OUT)
 	$(VECHO) "  CC\t$@\n"
 	$(Q)$(CC) $(CFLAGS) $(PUREDOOM_CFLAGS) -c -o $@ $<
 
-# Special rule for base64.c with NEON-enabled compilation
-# This ensures arch/neon-base64.h can use NEON intrinsics when available
+# Special rule for base64.c with SIMD-enabled compilation
+# This ensures arch/neon-base64.h and arch/sse-base64.h can use SIMD intrinsics
 $(OUT)/base64.o: src/base64.c | $(OUT)
 	$(VECHO) "  CC\t$@\n"
-	$(Q)$(CC) $(CFLAGS) $(NEON_CFLAGS) -c -o $@ $<
+	$(Q)$(CC) $(CFLAGS) $(ARCH_FLAGS) -c -o $@ $<
 
 # Create build directory
 $(OUT):
