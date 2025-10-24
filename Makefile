@@ -95,8 +95,8 @@ run: $(TARGET) $(DOOM1_WAD) check-wad-symlink
 	@$(TARGET)
 
 # Test targets
-.PHONY: test bench-base64 bench-framediff
-test: bench-base64 bench-framediff
+.PHONY: check
+check: bench-base64 bench-framediff
 
 bench-base64: $(TEST_OUT)/bench-base64
 	$(VECHO) "Running base64 tests and benchmarks...\n"
@@ -148,19 +148,6 @@ $(OUT):
 clean:
 	$(VECHO) "  CLEAN\t\t$(OUT)\n"
 	$(Q)rm -rf $(OUT)
-
-# Help target
-.PHONY: help
-help:
-	@echo "Kitty DOOM Makefile targets:"
-	@echo "  make              - Build the game"
-	@echo "  make run          - Build and run the game"
-	@echo "  make test         - Run all tests and benchmarks"
-	@echo "  make bench-base64      - Run base64 tests and benchmarks"
-	@echo "  make bench-framediff   - Run frame differencing benchmark"
-	@echo "  make clean        - Remove build artifacts"
-	@echo "  make distclean    - Remove all generated files"
-	@echo "  make download-assets   - Download DOOM1.WAD and PureDOOM.h"
 
 # Clean everything including downloaded files
 .PHONY: distclean
