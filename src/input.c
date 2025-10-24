@@ -467,16 +467,37 @@ input_t *input_create(void)
         .esc_waiting = false,
     };
 
-    pthread_mutex_init(&input->query_mutex, NULL);
-    pthread_cond_init(&input->query_condition, NULL);
-    pthread_mutex_init(&input->release_mutex, NULL);
+    /* Initialize pthread synchronization primitives */
+    if (pthread_mutex_init(&input->query_mutex, NULL) != 0) {
+        free(input);
+        return NULL;
+    }
+
+    if (pthread_cond_init(&input->query_condition, NULL) != 0) {
+        pthread_mutex_destroy(&input->query_mutex);
+        free(input);
+        return NULL;
+    }
+
+    if (pthread_mutex_init(&input->release_mutex, NULL) != 0) {
+        pthread_cond_destroy(&input->query_condition);
+        pthread_mutex_destroy(&input->query_mutex);
+        free(input);
+        return NULL;
+    }
 
     /* Hide the cursor */
     printf("\033[?25l");
     fflush(stdout);
 
     /* Start the keyboard thread */
-    pthread_create(&input->thread, NULL, input_thread_func, input);
+    if (pthread_create(&input->thread, NULL, input_thread_func, input) != 0) {
+        pthread_mutex_destroy(&input->release_mutex);
+        pthread_cond_destroy(&input->query_condition);
+        pthread_mutex_destroy(&input->query_mutex);
+        free(input);
+        return NULL;
+    }
 
     /* Give the input thread time to start and be ready to receive responses.
      * This prevents timing issues where terminal queries are sent before the
@@ -517,6 +538,16 @@ void input_destroy(input_t *input)
 bool input_is_running(const input_t *restrict input)
 {
     return input && !input->exit_requested;
+}
+
+void input_request_exit(input_t *restrict input)
+{
+    if (!input)
+        return;
+
+    /* Signal both the main loop and the input thread to exit */
+    input->exit_requested = true;
+    input->exiting = true;
 }
 
 int *input_get_device_attributes(const input_t *input, int *count)

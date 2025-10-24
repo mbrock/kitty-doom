@@ -4,6 +4,7 @@
  * "LICENSE" for information on usage and redistribution of this file.
  */
 
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,6 +21,18 @@
 #include "kitty-doom.h"
 
 static const char *last_print_string = NULL;
+
+/* Signal handling for graceful shutdown
+ * IMPORTANT: Only sig_atomic_t access is allowed in signal handlers.
+ * The handler sets a flag, and shutdown is handled in the main thread.
+ */
+static volatile sig_atomic_t signal_received = 0;
+
+static void signal_handler(int signum)
+{
+    (void) signum; /* Unused parameter */
+    signal_received = 1;
+}
 
 static void print_handler(const char *s)
 {
@@ -41,6 +54,21 @@ static void exit_handler(int exit_code)
 
 int main(int argc, char **argv)
 {
+    /* Signal handlers are installed for graceful shutdown */
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        fprintf(stderr, "Failed to install SIGINT handler\n");
+        return EXIT_FAILURE;
+    }
+    if (sigaction(SIGTERM, &sa, NULL) == -1) {
+        fprintf(stderr, "Failed to install SIGTERM handler\n");
+        return EXIT_FAILURE;
+    }
+
     os_t *os = os_create();
     if (!os) {
         fprintf(stderr, "Failed to initialize OS layer\n");
@@ -58,7 +86,7 @@ int main(int argc, char **argv)
     doom_set_exit(exit_handler);
     doom_init(argc, argv, 0);
 
-    /* Check if doom_init triggered an exit */
+    /* doom_init may have triggered an exit */
     if (exit_requested) {
         if (last_print_string)
             printf("%s\n", last_print_string);
@@ -77,15 +105,21 @@ int main(int argc, char **argv)
     }
 
     /* Main game loop */
-    while (input_is_running(input) && !exit_requested) {
+    while (input_is_running(input) && !exit_requested && !signal_received) {
         doom_update();
 
-        /* Get RGB24 format directly from PureDOOM */
+        /* RGB24 format is obtained directly from PureDOOM */
         const unsigned char *frame = doom_get_framebuffer(3);
         renderer_render_frame(r, frame);
     }
 
-    /* Cleanup resources in reverse order */
+    /* Input thread is requested to exit before cleanup
+     * This call is unconditional to handle signals arriving after loop check
+     * input_request_exit() is idempotent, thus safe to call multiple times
+     */
+    input_request_exit(input);
+
+    /* Resources are cleaned up in reverse order */
     renderer_destroy(r);
     input_destroy(input);
     os_destroy(os);

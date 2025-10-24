@@ -21,6 +21,7 @@ typedef struct input input_t;
 input_t *input_create(void);
 void input_destroy(input_t *restrict input);
 bool input_is_running(const input_t *restrict input);
+void input_request_exit(input_t *restrict input);
 int *input_get_device_attributes(const input_t *restrict input,
                                  int *restrict count);
 int_pair_t input_get_screen_size(const input_t *restrict input);
@@ -51,10 +52,20 @@ static inline os_t *os_create(void)
     if (!os)
         return NULL;
 
-    tcgetattr(STDIN_FILENO, &os->term_attributes);
+    /* Get current terminal attributes */
+    if (tcgetattr(STDIN_FILENO, &os->term_attributes) == -1) {
+        free(os);
+        return NULL;
+    }
+
+    /* Set new terminal attributes for raw mode */
     struct termios new_term_attributes = os->term_attributes;
     new_term_attributes.c_lflag &= ~(ICANON | ISIG | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &new_term_attributes);
+
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_term_attributes) == -1) {
+        free(os);
+        return NULL;
+    }
 
     return os;
 }
