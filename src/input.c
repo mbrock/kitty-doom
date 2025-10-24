@@ -17,6 +17,7 @@
 #define MAX_PARMS 32
 #define MAX_DA 32
 #define MAX_PENDING_RELEASES 16
+#define MAX_KEY_CODE 256
 
 typedef enum { STATE_GROUND, STATE_ESC, STATE_SS3, STATE_CSI } parser_state_t;
 
@@ -50,6 +51,9 @@ struct input {
     int pending_count;
     pthread_mutex_t release_mutex;
 
+    /* Bitmap for O(1) key held detection (256 bits = 4 x 64-bit words) */
+    uint64_t held_keys_bitmap[4];
+
     /* ESC key timeout tracking */
     struct timespec esc_time;
     bool esc_waiting;
@@ -71,6 +75,26 @@ static inline void for_each_modifier(int modifiers, void (*lambda)(int))
 static void key_down(int key)
 {
     doom_key_down(key);
+}
+
+/* Mark key as held in bitmap */
+static inline void mark_key_held(input_t *restrict input, int key)
+{
+    if (key < 0 || key >= MAX_KEY_CODE)
+        return;
+    const int word = key / 64;
+    const int bit = key % 64;
+    input->held_keys_bitmap[word] |= (1ULL << bit);
+}
+
+/* Mark key as released in bitmap */
+static inline void mark_key_released(input_t *restrict input, int key)
+{
+    if (key < 0 || key >= MAX_KEY_CODE)
+        return;
+    const int word = key / 64;
+    const int bit = key % 64;
+    input->held_keys_bitmap[word] &= ~(1ULL << bit);
 }
 
 /* Schedule a key release after specified delay (in milliseconds).
@@ -105,6 +129,7 @@ static void sched_key_release(input_t *restrict input, int key, int delay_ms)
     if (input->pending_count < MAX_PENDING_RELEASES) {
         input->pending_releases[input->pending_count++] =
             (pending_release_t) {.key = key, .release_time = release_time};
+        mark_key_held(input, key); /* Mark in bitmap */
     }
 
     pthread_mutex_unlock(&input->release_mutex);
@@ -144,6 +169,7 @@ static void process_pending_releases(input_t *restrict input)
              now.tv_nsec >= pr->release_time.tv_nsec)) {
             /* Release the key */
             doom_key_up(pr->key);
+            mark_key_released(input, pr->key); /* Clear from bitmap */
 
             /* Remove from list by shifting remaining items */
             for (int j = i; j < input->pending_count - 1; j++)
@@ -155,18 +181,20 @@ static void process_pending_releases(input_t *restrict input)
     pthread_mutex_unlock(&input->release_mutex);
 }
 
-/* Check if a key is already scheduled for release */
+/* Check if a key is already scheduled for release (O(1) bitmap lookup) */
 static bool is_key_held(input_t *restrict input, int key)
 {
+    if (key < 0 || key >= MAX_KEY_CODE)
+        return false;
+
+    const int word = key / 64;
+    const int bit = key % 64;
+
     pthread_mutex_lock(&input->release_mutex);
-    for (int i = 0; i < input->pending_count; i++) {
-        if (input->pending_releases[i].key == key) {
-            pthread_mutex_unlock(&input->release_mutex);
-            return true;
-        }
-    }
+    bool held = (input->held_keys_bitmap[word] & (1ULL << bit)) != 0;
     pthread_mutex_unlock(&input->release_mutex);
-    return false;
+
+    return held;
 }
 
 static void ascii_key(input_t *restrict input, char ch)
@@ -464,6 +492,7 @@ input_t *input_create(void)
         .device_attributes = NULL,
         .da_count = 0,
         .pending_count = 0,
+        .held_keys_bitmap = {0}, /* Initialize bitmap to all zeros */
         .esc_waiting = false,
     };
 
