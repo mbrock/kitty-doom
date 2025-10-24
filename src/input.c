@@ -5,6 +5,7 @@
  */
 
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,8 +31,8 @@ struct input {
     pthread_t thread;
     pthread_mutex_t query_mutex;
     pthread_cond_t query_condition;
-    volatile bool exiting;
-    volatile bool exit_requested;
+    atomic_bool exiting;
+    atomic_bool exit_requested;
 
     parser_state_t state;
     int parms[MAX_PARMS];
@@ -51,8 +52,16 @@ struct input {
     int pending_count;
     pthread_mutex_t release_mutex;
 
-    /* Bitmap for O(1) key held detection (256 bits = 4 x 64-bit words) */
-    uint64_t held_keys_bitmap[4];
+    /* Bitmap for O(1) key held detection (256 bits = 4 x 64-bit words)
+     * Using atomic operations for lock-free access
+     *
+     * Memory ordering: relaxed is sufficient because:
+     * - Each bit represents independent key state
+     * - Key events are infrequent (> 1ms apart)
+     * - Release delays (50-150ms) dwarf cache coherency latency (~100ns)
+     * - Stale reads are harmless (corrected in next poll iteration)
+     */
+    _Atomic uint64_t held_keys_bitmap[4];
 
     /* ESC key timeout tracking */
     struct timespec esc_time;
@@ -77,24 +86,26 @@ static void key_down(int key)
     doom_key_down(key);
 }
 
-/* Mark key as held in bitmap */
+/* Mark key as held in bitmap (lock-free atomic operation) */
 static inline void mark_key_held(input_t *restrict input, int key)
 {
     if (key < 0 || key >= MAX_KEY_CODE)
         return;
     const int word = key / 64;
     const int bit = key % 64;
-    input->held_keys_bitmap[word] |= (1ULL << bit);
+    atomic_fetch_or_explicit(&input->held_keys_bitmap[word], 1ULL << bit,
+                             memory_order_relaxed);
 }
 
-/* Mark key as released in bitmap */
+/* Mark key as released in bitmap (lock-free atomic operation) */
 static inline void mark_key_released(input_t *restrict input, int key)
 {
     if (key < 0 || key >= MAX_KEY_CODE)
         return;
     const int word = key / 64;
     const int bit = key % 64;
-    input->held_keys_bitmap[word] &= ~(1ULL << bit);
+    atomic_fetch_and_explicit(&input->held_keys_bitmap[word], ~(1ULL << bit),
+                              memory_order_relaxed);
 }
 
 /* Schedule a key release after specified delay (in milliseconds).
@@ -181,7 +192,7 @@ static void process_pending_releases(input_t *restrict input)
     pthread_mutex_unlock(&input->release_mutex);
 }
 
-/* Check if a key is already scheduled for release (O(1) bitmap lookup) */
+/* Check if a key is already held (lock-free atomic read, O(1)) */
 static bool is_key_held(input_t *restrict input, int key)
 {
     if (key < 0 || key >= MAX_KEY_CODE)
@@ -190,11 +201,9 @@ static bool is_key_held(input_t *restrict input, int key)
     const int word = key / 64;
     const int bit = key % 64;
 
-    pthread_mutex_lock(&input->release_mutex);
-    bool held = (input->held_keys_bitmap[word] & (1ULL << bit)) != 0;
-    pthread_mutex_unlock(&input->release_mutex);
-
-    return held;
+    uint64_t bitmap_word = atomic_load_explicit(&input->held_keys_bitmap[word],
+                                                memory_order_relaxed);
+    return (bitmap_word & (1ULL << bit)) != 0;
 }
 
 static void ascii_key(input_t *restrict input, char ch)
@@ -353,7 +362,8 @@ static void parse_char(input_t *restrict input, char ch)
 {
     if (ch == 3) {
         /* Ctrl+C - immediate exit */
-        input->exit_requested = true;
+        atomic_store_explicit(&input->exit_requested, true,
+                              memory_order_relaxed);
     } else if (ch == 27) {
         /* ESC - could be start of escape sequence OR standalone ESC key.
          * If parser is already in STATE_ESC, the previous ESC was standalone.
@@ -430,7 +440,7 @@ static void parse_char(input_t *restrict input, char ch)
 static void *input_thread_func(void *arg)
 {
     input_t *input = (input_t *) arg;
-    while (!input->exiting) {
+    while (!atomic_load_explicit(&input->exiting, memory_order_relaxed)) {
         /* Process any pending key releases first */
         process_pending_releases(input);
 
@@ -544,7 +554,7 @@ void input_destroy(input_t *input)
         return;
 
     /* Signal thread to exit */
-    input->exiting = true;
+    atomic_store_explicit(&input->exiting, true, memory_order_relaxed);
 
     /* Give the thread a moment to finish naturally */
     struct timespec ts = {.tv_sec = 0, .tv_nsec = 10000000}; /*  10ms */
@@ -566,7 +576,8 @@ void input_destroy(input_t *input)
 
 bool input_is_running(const input_t *restrict input)
 {
-    return input && !input->exit_requested;
+    return input &&
+           !atomic_load_explicit(&input->exit_requested, memory_order_relaxed);
 }
 
 void input_request_exit(input_t *restrict input)
@@ -575,8 +586,8 @@ void input_request_exit(input_t *restrict input)
         return;
 
     /* Signal both the main loop and the input thread to exit */
-    input->exit_requested = true;
-    input->exiting = true;
+    atomic_store_explicit(&input->exit_requested, true, memory_order_relaxed);
+    atomic_store_explicit(&input->exiting, true, memory_order_relaxed);
 }
 
 int *input_get_device_attributes(const input_t *input, int *count)

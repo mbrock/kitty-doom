@@ -25,7 +25,7 @@ DEPS := $(OBJS:.o=.d)
 
 # Compiler and flags
 CC := cc
-CFLAGS := -std=gnu99 -Wall -Wextra -O2 -g -Isrc -MMD -MP
+CFLAGS := -std=gnu11 -Wall -Wextra -O2 -g -Isrc -MMD -MP
 LDLIBS := -lpthread
 
 # NEON-specific flags (enabled on ARM/ARM64)
@@ -96,7 +96,7 @@ run: $(TARGET) $(DOOM1_WAD) check-wad-symlink
 
 # Test targets
 .PHONY: check
-check: bench-base64 bench-framediff
+check: bench-base64 bench-framediff test-atomic-bitmap
 
 bench-base64: $(TEST_OUT)/bench-base64
 	$(VECHO) "Running base64 tests and benchmarks...\n"
@@ -106,6 +106,10 @@ bench-framediff: $(TEST_OUT)/bench-framediff
 	$(VECHO) "Running frame differencing benchmark...\n"
 	@$(TEST_OUT)/bench-framediff
 
+test-atomic-bitmap: $(TEST_OUT)/test-atomic-bitmap
+	$(VECHO) "Running atomic bitmap concurrent test...\n"
+	@$(TEST_OUT)/test-atomic-bitmap
+
 # Build test binaries
 $(TEST_OUT)/bench-base64: $(TEST_DIR)/bench-base64.c src/base64.c | $(TEST_OUT)
 	$(VECHO) "  CC\t$@\n"
@@ -114,6 +118,10 @@ $(TEST_OUT)/bench-base64: $(TEST_DIR)/bench-base64.c src/base64.c | $(TEST_OUT)
 $(TEST_OUT)/bench-framediff: $(TEST_DIR)/bench-framediff.c | $(TEST_OUT)
 	$(VECHO) "  CC\t$@\n"
 	$(Q)$(CC) $(CFLAGS) $(NEON_FLAGS) -o $@ $<
+
+$(TEST_OUT)/test-atomic-bitmap: $(TEST_DIR)/test-atomic-bitmap.c | $(TEST_OUT)
+	$(VECHO) "  CC\t$@\n"
+	$(Q)$(CC) $(CFLAGS) -o $@ $< $(LDLIBS)
 
 $(TEST_OUT):
 	$(Q)mkdir -p $(TEST_OUT)
