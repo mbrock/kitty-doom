@@ -18,6 +18,11 @@
 #include "arch/neon-framediff.h"
 #endif
 
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+#include "arch/sse-framediff.h"
+#endif
+
 #define WIDTH 320
 #define HEIGHT 200
 #define FRAME_SKIP_THRESHOLD 5 /* Skip update if < 5% pixels changed */
@@ -120,6 +125,11 @@ void renderer_render_frame(renderer_t *restrict r,
 #if defined(__aarch64__) || defined(__ARM_NEON)
         /* Use NEON-accelerated diff detection */
         diff_percentage = framediff_percentage_neon(
+            r->prev_frame, (const uint8_t *) rgb24_frame, pixel_count);
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+        /* Use SSE2-accelerated diff detection */
+        diff_percentage = framediff_percentage_sse(
             r->prev_frame, (const uint8_t *) rgb24_frame, pixel_count);
 #else
         /* Fallback to scalar diff detection */

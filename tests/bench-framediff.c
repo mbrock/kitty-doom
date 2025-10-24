@@ -16,6 +16,11 @@
 #include "../src/arch/neon-framediff.h"
 #endif
 
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+#include "../src/arch/sse-framediff.h"
+#endif
+
 #define WIDTH 320
 #define HEIGHT 200
 #define PIXEL_COUNT (WIDTH * HEIGHT)
@@ -68,6 +73,10 @@ static void bench_framediff(const char *impl_name,
 #if defined(__aarch64__) || defined(__ARM_NEON)
         detected_percent =
             framediff_percentage_neon(frame1, frame2, PIXEL_COUNT);
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+        detected_percent =
+            framediff_percentage_sse(frame1, frame2, PIXEL_COUNT);
 #else
         /* Scalar fallback */
         size_t diff_pixels = 0;
@@ -115,6 +124,9 @@ int main(void)
 
 #if defined(__aarch64__) || defined(__ARM_NEON)
     const char *impl = "NEON";
+#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+    const char *impl = "SSE2";
 #else
     const char *impl = "Scalar";
 #endif
