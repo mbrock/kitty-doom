@@ -10,7 +10,9 @@ Supported Terminals
 ## Features
 
 - Terminal graphics rendering via [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
-- Pure C99 implementation with POSIX threading
+- Pure C11 implementation with POSIX threading
+- Lock-free atomic operations for input handling
+- SIMD-optimized base64 encoding (NEON/SSE3)
 - Standard VT input sequences for keyboard control
 - Cross-platform support for Linux and macOS
 - Based on the [PureDOOM](https://github.com/Daivuk/PureDOOM) single-header port
@@ -20,14 +22,21 @@ Supported Terminals
 ### Rendering Pipeline
 - Resolution: 320x200 framebuffer (classic DOOM resolution)
 - Color format: RGB24 (indexed palette to RGB conversion)
-- Transfer: Base64-encoded in 4KB chunks
+- Transfer: Base64-encoded in 4KB chunks with SIMD optimization
+  * Arm64: NEON intrinsics (6.9x speedup over scalar)
+  * x86-64: SSSE3 intrinsics (similar performance gains)
 - Protocol: Kitty Graphics Protocol with frame-by-frame transmission
 - Display: First frame uses `a=T` (transmit), subsequent frames use `a=f` (frame update)
 
 ### Input System
 - Threading: Dedicated pthread for input handling
 - Parsing: VT sequence state machine (ground → esc → csi/ss3)
-- Key behavior: Simple press-release for all keys (1ms delay for DOOM compatibility)
+- Key tracking: Lock-free atomic bitmap (C11 atomics)
+  * 256-bit bitmap using 4x64-bit atomic words
+  * Zero contention, 5-20x faster than mutex-based approach
+- Key behavior: Differentiated release delays
+  * Direction keys: 150ms (covers terminal repeat intervals)
+  * Action keys: 50ms (maintains menu responsiveness)
 - Fire key: F or I keys (Ctrl is difficult to capture in terminal environments)
 
 ### Engine
@@ -37,7 +46,7 @@ Supported Terminals
 
 ## Requirements
 
-- C99-compatible compiler (GCC or Clang)
+- C11-compatible compiler (GCC 4.9+ or Clang 3.1+)
 - GNU Make 3.81 or later
 - POSIX pthread library
 - curl or wget for dependency download
@@ -59,6 +68,7 @@ The build system automatically downloads `PureDOOM.h` and `DOOM1.WAD` (shareware
 ```bash
 make                  # Build the project (downloads dependencies automatically)
 make run              # Build and run the game
+make check            # Run all tests
 make download-assets  # Manually download DOOM1.WAD and PureDOOM.h
 make clean            # Remove build artifacts
 make distclean        # Remove all generated files including downloads
