@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "base64.h"
 #include "kitty-doom.h"
 
 #define WIDTH 320
@@ -23,30 +24,6 @@ struct renderer {
     size_t encoded_buffer_size;
     char encoded_buffer[];
 };
-
-static inline size_t base64_encode(const unsigned char *restrict data,
-                                   size_t input_length,
-                                   char *restrict encoded_data)
-{
-    static const char base64_table[] =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    size_t j = 0;
-    for (size_t i = 0; i < input_length; i += 3) {
-        uint32_t octet_a = data[i];
-        uint32_t octet_b = (i + 1 < input_length) ? data[i + 1] : 0;
-        uint32_t octet_c = (i + 2 < input_length) ? data[i + 2] : 0;
-        uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
-
-        encoded_data[j++] = base64_table[(triple >> 18) & 0x3F];
-        encoded_data[j++] = base64_table[(triple >> 12) & 0x3F];
-        encoded_data[j++] =
-            (i + 1 < input_length) ? base64_table[(triple >> 6) & 0x3F] : '=';
-        encoded_data[j++] =
-            (i + 2 < input_length) ? base64_table[triple & 0x3F] : '=';
-    }
-    return j;
-}
 
 renderer_t *renderer_create(int screen_rows, int screen_cols)
 {
@@ -76,6 +53,9 @@ renderer_t *renderer_create(int screen_rows, int screen_cols)
     /* Clear the screen and move cursor to home */
     printf("\033[2J\033[H");
     fflush(stdout);
+
+    /* Log the active base64 implementation */
+    fprintf(stderr, "Base64 implementation: %s\n", base64_get_impl_name());
 
     return r;
 }
@@ -117,7 +97,8 @@ void renderer_render_frame(renderer_t *restrict r,
 
     /* Encode RGB data to base64 */
     size_t encoded_size =
-        base64_encode(rgb24_frame, bitmap_size, r->encoded_buffer);
+        base64_encode_auto((const uint8_t *) rgb24_frame, bitmap_size,
+                           (uint8_t *) r->encoded_buffer);
     r->encoded_buffer[encoded_size] = '\0';
 
     /* Send Kitty Graphics Protocol escape sequence with base64 data */
