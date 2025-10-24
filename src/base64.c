@@ -84,8 +84,13 @@ static base64_encode_func_t select_best_impl(void)
 
     if (!initialized) {
         if (cpu_has_neon()) {
+#if defined(__aarch64__) || defined(__ARM_NEON)
             /* Use NEON SIMD implementation (simdutf algorithm) */
             best_impl = base64_encode_neon;
+#else
+            /* NEON not available, fallback to scalar */
+            best_impl = base64_encode_scalar;
+#endif
         } else {
             /* Fallback to basic scalar */
             best_impl = base64_encode_scalar;
@@ -110,8 +115,10 @@ const char *base64_get_impl_name(void)
 {
     base64_encode_func_t impl = select_best_impl();
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
     if (impl == base64_encode_neon)
         return "NEON";
+#endif
     if (impl == base64_encode_scalar)
         return "Scalar";
     return "Unknown";
