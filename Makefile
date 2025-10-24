@@ -65,7 +65,15 @@ PUREDOOM_CFLAGS := $(foreach flag,$(PUREDOOM_CFLAGS_TO_CHECK),$(call check_flag,
 
 # Default target
 .PHONY: all
-all: $(TARGET) $(DOOM1_WAD)
+all: $(TARGET) $(DOOM1_WAD) check-wad-symlink
+
+# Check and create doom1.wad symlink if needed (for case-sensitive filesystems)
+.PHONY: check-wad-symlink
+check-wad-symlink: $(DOOM1_WAD)
+	@if [ ! -e doom1.wad ] && [ -e $(DOOM1_WAD) ]; then \
+		printf "  LINK\tdoom1.wad -> $(DOOM1_WAD)\n"; \
+		ln -s $(DOOM1_WAD) doom1.wad; \
+	fi
 
 # Download game assets (DOOM1.WAD and PureDOOM.h)
 .PHONY: download-assets
@@ -73,7 +81,7 @@ download-assets: $(DOOM1_WAD) $(PUREDOOM_HEADER)
 
 # Run the game
 .PHONY: run
-run: $(TARGET) $(DOOM1_WAD)
+run: $(TARGET) $(DOOM1_WAD) check-wad-symlink
 	@$(TARGET)
 
 # Test targets

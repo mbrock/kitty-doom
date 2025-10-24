@@ -20,6 +20,8 @@ else
 endif
 
 # DOOM1.WAD (shareware version)
+# Note: PureDOOM expects lowercase "doom1.wad" on case-sensitive filesystems (Linux).
+# The Makefile will create a symlink automatically via the check-wad-symlink target.
 DOOM1_WAD_URL = https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad
 DOOM1_WAD = DOOM1.WAD
 DOOM1_WAD_SHA256 = 1d7d43be501e67d927e415e0b8f3e29c3bf33075e859721816f652a526cac771
@@ -45,4 +47,4 @@ $(PUREDOOM_HEADER):
 .PHONY: clean-external
 clean-external:
 	$(VECHO) "  CLEAN\t\texternal files\n"
-	$(Q)rm -f $(DOOM1_WAD) $(PUREDOOM_HEADER)
+	$(Q)rm -f $(DOOM1_WAD) doom1.wad $(PUREDOOM_HEADER)
