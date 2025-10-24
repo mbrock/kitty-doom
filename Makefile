@@ -23,7 +23,7 @@ DEPS := $(OBJS:.o=.d)
 
 # Compiler and flags
 CC := cc
-CFLAGS := -std=c99 -Wall -Wextra -O2 -g -Isrc -MMD -MP
+CFLAGS := -std=gnu99 -Wall -Wextra -O2 -g -Isrc -MMD -MP
 LDLIBS := -lpthread
 
 # Check if compiler supports a specific flag
@@ -43,7 +43,11 @@ PUREDOOM_CFLAGS_TO_CHECK := \
     -Wno-unknown-pragmas \
     -Wno-sometimes-uninitialized \
     -Wno-unknown-warning-option \
-    -Wno-string-concatenation
+    -Wno-string-concatenation \
+    -Wno-enum-conversion \
+    -Wno-implicit-fallthrough \
+    -Wno-dangling-pointer \
+    -Wno-maybe-uninitialized
 
 # Only add flags that the compiler supports
 PUREDOOM_CFLAGS := $(foreach flag,$(PUREDOOM_CFLAGS_TO_CHECK),$(call check_flag,$(flag)))
