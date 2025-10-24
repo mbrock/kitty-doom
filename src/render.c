@@ -14,14 +14,20 @@
 #include "base64.h"
 #include "kitty-doom.h"
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+#include "arch/neon-framediff.h"
+#endif
+
 #define WIDTH 320
 #define HEIGHT 200
+#define FRAME_SKIP_THRESHOLD 5 /* Skip update if < 5% pixels changed */
 
 struct renderer {
     int screen_rows, screen_cols;
     long kitty_id;
     int frame_number;
     size_t encoded_buffer_size;
+    uint8_t *prev_frame; /* Previous frame for diff detection */
     char encoded_buffer[];
 };
 
@@ -35,12 +41,21 @@ renderer_t *renderer_create(int screen_rows, int screen_cols)
     if (!r)
         return NULL;
 
+    /* Allocate previous frame buffer for diff detection */
+    r->prev_frame = malloc(bitmap_size);
+    if (!r->prev_frame) {
+        free(r);
+        return NULL;
+    }
+    memset(r->prev_frame, 0, bitmap_size);
+
     *r = (renderer_t) {
         .screen_rows = screen_rows,
         .screen_cols = screen_cols,
         .frame_number = 0,
         .encoded_buffer_size = encoded_buffer_size,
-        .kitty_id = 0, /* Will be set below */
+        .kitty_id = 0,               /* Will be set below */
+        .prev_frame = r->prev_frame, /* Already allocated above */
     };
 
     /* Generate random image ID for Kitty protocol */
@@ -77,6 +92,8 @@ void renderer_destroy(renderer_t *restrict r)
     printf("\033]21\033\\");
     fflush(stdout);
 
+    /* Free allocated buffers */
+    free(r->prev_frame);
     free(r);
 }
 
@@ -94,6 +111,35 @@ void renderer_render_frame(renderer_t *restrict r,
 
     /* rgb24_frame is already in RGB24 format from doom_get_framebuffer(3) */
     const size_t bitmap_size = WIDTH * HEIGHT * 3;
+    const size_t pixel_count = WIDTH * HEIGHT;
+
+    /* Frame differencing: skip update if changes are minimal */
+    if (r->frame_number > 0) {
+        int diff_percentage = 0;
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+        /* Use NEON-accelerated diff detection */
+        diff_percentage = framediff_percentage_neon(
+            r->prev_frame, (const uint8_t *) rgb24_frame, pixel_count);
+#else
+        /* Fallback to scalar diff detection */
+        size_t diff_pixels = 0;
+        const uint8_t *prev = r->prev_frame;
+        const uint8_t *curr = (const uint8_t *) rgb24_frame;
+        for (size_t i = 0; i < bitmap_size; i += 3) {
+            if (prev[i] != curr[i] || prev[i + 1] != curr[i + 1] ||
+                prev[i + 2] != curr[i + 2]) {
+                diff_pixels++;
+            }
+        }
+        diff_percentage = (int) ((diff_pixels * 100) / pixel_count);
+#endif
+
+        /* Skip rendering if change is below threshold */
+        if (diff_percentage < FRAME_SKIP_THRESHOLD) {
+            return; /* Frame unchanged, skip transmission */
+        }
+    }
 
     /* Encode RGB data to base64 */
     size_t encoded_size =
@@ -150,6 +196,9 @@ void renderer_render_frame(renderer_t *restrict r,
         printf("\r\n");
         fflush(stdout);
     }
+
+    /* Update previous frame buffer for next diff */
+    memcpy(r->prev_frame, rgb24_frame, bitmap_size);
 
     r->frame_number++;
 }

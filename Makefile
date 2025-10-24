@@ -77,25 +77,25 @@ run: $(TARGET) $(DOOM1_WAD)
 	@$(TARGET)
 
 # Test targets
-.PHONY: test test-correctness test-performance
-test: test-correctness test-performance
+.PHONY: test bench-base64 bench-framediff
+test: bench-base64 bench-framediff
 
-test-correctness: $(TEST_OUT)/test-base64
-	$(VECHO) "Running correctness tests...\n"
-	@$(TEST_OUT)/test-base64
-
-test-performance: $(TEST_OUT)/bench-base64
-	$(VECHO) "Running performance benchmarks...\n"
+bench-base64: $(TEST_OUT)/bench-base64
+	$(VECHO) "Running base64 tests and benchmarks...\n"
 	@$(TEST_OUT)/bench-base64
 
-# Build test binaries
-$(TEST_OUT)/test-base64: $(TEST_DIR)/test-base64.c src/base64.c | $(TEST_OUT)
-	$(VECHO) "  CC\t$@\n"
-	$(Q)$(CC) $(CFLAGS) $(NEON_CFLAGS) -o $@ $^
+bench-framediff: $(TEST_OUT)/bench-framediff
+	$(VECHO) "Running frame differencing benchmark...\n"
+	@$(TEST_OUT)/bench-framediff
 
+# Build test binaries
 $(TEST_OUT)/bench-base64: $(TEST_DIR)/bench-base64.c src/base64.c | $(TEST_OUT)
 	$(VECHO) "  CC\t$@\n"
 	$(Q)$(CC) $(CFLAGS) $(NEON_CFLAGS) -o $@ $^
+
+$(TEST_OUT)/bench-framediff: $(TEST_DIR)/bench-framediff.c | $(TEST_OUT)
+	$(VECHO) "  CC\t$@\n"
+	$(Q)$(CC) $(CFLAGS) $(NEON_CFLAGS) -o $@ $<
 
 $(TEST_OUT):
 	$(Q)mkdir -p $(TEST_OUT)
@@ -137,9 +137,9 @@ help:
 	@echo "Kitty DOOM Makefile targets:"
 	@echo "  make              - Build the game"
 	@echo "  make run          - Build and run the game"
-	@echo "  make test         - Run all tests"
-	@echo "  make test-correctness  - Run correctness tests only"
-	@echo "  make test-performance  - Run performance benchmarks only"
+	@echo "  make test         - Run all tests and benchmarks"
+	@echo "  make bench-base64      - Run base64 tests and benchmarks"
+	@echo "  make bench-framediff   - Run frame differencing benchmark"
 	@echo "  make clean        - Remove build artifacts"
 	@echo "  make distclean    - Remove all generated files"
 	@echo "  make download-assets   - Download DOOM1.WAD and PureDOOM.h"
