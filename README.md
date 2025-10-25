@@ -24,7 +24,13 @@ Supported Terminals
 - Color format: RGB24 (indexed palette to RGB conversion)
 - Transfer: Base64-encoded in 4KB chunks with SIMD optimization
   * Arm64: NEON intrinsics (6.9x speedup over scalar)
-  * x86-64: SSSE3 intrinsics (similar performance gains)
+  * x86-64: SSSE3 intrinsics for base64 encoding
+    - Processes 12 bytes → 16 base64 chars per iteration
+    - Uses pshufb for bit extraction and table lookup
+- Frame skipping: SSE2/SSE4.2 optimized frame difference detection
+  * Compares 48 bytes (16 RGB24 pixels) per iteration
+  * Uses POPCNT instruction for fast bit counting
+  * Skips transmission if < 5% pixels changed (reduces bandwidth)
 - Protocol: Kitty Graphics Protocol with frame-by-frame transmission
 - Display: First frame uses `a=T` (transmit), subsequent frames use `a=f` (frame update)
 
@@ -34,9 +40,10 @@ Supported Terminals
 - Key tracking: Lock-free atomic bitmap (C11 atomics)
   * 256-bit bitmap using 4x64-bit atomic words
   * Zero contention, 5-20x faster than mutex-based approach
-- Key behavior: Differentiated release delays
-  * Direction keys: 150ms (covers terminal repeat intervals)
-  * Action keys: 50ms (maintains menu responsiveness)
+- Key behavior: Unified 50ms release delay for all keys
+  * Prioritizes menu responsiveness over movement smoothness
+  * Repeat detection prevents duplicate key events from terminal auto-repeat
+  * Trade-off: Fast menu navigation, acceptable movement fluidity
 - Fire key: F or I keys (Ctrl is difficult to capture in terminal environments)
 
 ### Engine
