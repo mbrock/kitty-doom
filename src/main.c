@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 /* PureDOOM implementation - bundles the DOOM engine as C code */
@@ -216,13 +217,30 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    /* Main game loop */
+    /* Main game loop - 35 FPS (28.57ms per frame) */
+    const long frame_time_ns = 28571428; /* 1000ms / 35fps = 28.571ms */
+    struct timespec frame_start, frame_end, sleep_time;
+
     while (input_is_running(input) && !exit_requested && !signal_received) {
+        clock_gettime(CLOCK_MONOTONIC, &frame_start);
+
         doom_update();
 
         /* RGB24 format is obtained directly from PureDOOM */
         const unsigned char *frame = doom_get_framebuffer(3);
         renderer_render_frame(r, frame);
+
+        /* Frame timing: sleep to maintain 35 FPS */
+        clock_gettime(CLOCK_MONOTONIC, &frame_end);
+        long elapsed_ns = (frame_end.tv_sec - frame_start.tv_sec) * 1000000000L +
+                         (frame_end.tv_nsec - frame_start.tv_nsec);
+        long sleep_ns = frame_time_ns - elapsed_ns;
+
+        if (sleep_ns > 0) {
+            sleep_time.tv_sec = 0;
+            sleep_time.tv_nsec = sleep_ns;
+            nanosleep(&sleep_time, NULL);
+        }
     }
 
     /* Input thread is requested to exit before cleanup

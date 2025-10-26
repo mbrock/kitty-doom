@@ -25,7 +25,7 @@
 
 #define WIDTH 320
 #define HEIGHT 200
-#define FRAME_SKIP_THRESHOLD 5 /* Skip update if < 5% pixels changed */
+#define FRAME_SKIP_THRESHOLD 1 /* Skip update if < 1% pixels changed */
 
 struct renderer {
     int screen_rows, screen_cols;
@@ -108,48 +108,13 @@ void renderer_render_frame(renderer_t *restrict r,
     if (!r || !rgb24_frame)
         return;
 
-    /* On first frame, ensure cursor is at home position */
-    if (r->frame_number == 0) {
-        printf("\033[H");
-        fflush(stdout);
-    }
-
     /* rgb24_frame is already in RGB24 format from doom_get_framebuffer(3) */
     const size_t bitmap_size = WIDTH * HEIGHT * 3;
-    const size_t pixel_count = WIDTH * HEIGHT;
 
-    /* Frame differencing: skip update if changes are minimal */
-    if (r->frame_number > 0) {
-        int diff_percentage = 0;
-
-#if defined(__aarch64__) || defined(__ARM_NEON)
-        /* Use NEON-accelerated diff detection */
-        diff_percentage = framediff_percentage_neon(
-            r->prev_frame, (const uint8_t *) rgb24_frame, pixel_count);
-#elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
-    defined(_M_IX86)
-        /* Use SSE2-accelerated diff detection */
-        diff_percentage = framediff_percentage_sse(
-            r->prev_frame, (const uint8_t *) rgb24_frame, pixel_count);
-#else
-        /* Fallback to scalar diff detection */
-        size_t diff_pixels = 0;
-        const uint8_t *prev = r->prev_frame;
-        const uint8_t *curr = (const uint8_t *) rgb24_frame;
-        for (size_t i = 0; i < bitmap_size; i += 3) {
-            if (prev[i] != curr[i] || prev[i + 1] != curr[i + 1] ||
-                prev[i + 2] != curr[i + 2]) {
-                diff_pixels++;
-            }
-        }
-        diff_percentage = (int) ((diff_pixels * 100) / pixel_count);
-#endif
-
-        /* Skip rendering if change is below threshold */
-        if (diff_percentage < FRAME_SKIP_THRESHOLD) {
-            return; /* Frame unchanged, skip transmission */
-        }
-    }
+    /* Frame differencing disabled - important for menu responsiveness
+     * Since we're using a=T (full transmit) mode for Ghostty compatibility
+     * and have 35 FPS limiting, skipping frames causes more issues than it solves
+     */
 
     /* Encode RGB data to base64 */
     size_t encoded_size =
@@ -161,28 +126,28 @@ void renderer_render_frame(renderer_t *restrict r,
     /* Using Kitty mode (required for Kitty terminal) */
     const size_t chunk_size = 4096;
 
+    /* For Ghostty: delete old image before transmitting new one (except frame 0) */
+    if (r->frame_number > 0) {
+        printf("\033[H\033_Ga=d,i=%ld;\033\\", r->kitty_id);
+        fflush(stdout);
+    } else {
+        printf("\033[H");
+        fflush(stdout);
+    }
+
     for (size_t encoded_offset = 0; encoded_offset < encoded_size;) {
         bool more_chunks = (encoded_offset + chunk_size) < encoded_size;
 
         if (encoded_offset == 0) {
-            /* First chunk includes all image metadata */
-            if (r->frame_number == 0) {
-                /* First frame: create new image */
-                printf("\033_Ga=T,i=%ld,f=24,s=%d,v=%d,q=2,c=%d,r=%d,m=%d;",
-                       r->kitty_id, WIDTH, HEIGHT, r->screen_cols,
-                       r->screen_rows, more_chunks ? 1 : 0);
-            } else {
-                /* Subsequent frames: frame action */
-                printf("\033_Ga=f,r=1,i=%ld,f=24,x=0,y=0,s=%d,v=%d,m=%d;",
-                       r->kitty_id, WIDTH, HEIGHT, more_chunks ? 1 : 0);
-            }
+            /* First chunk includes all image metadata - use a=T for all frames
+             * (Ghostty doesn't support a=f animation commands properly)
+             */
+            printf("\033_Ga=T,i=%ld,f=24,s=%d,v=%d,q=2,c=%d,r=%d,m=%d;",
+                   r->kitty_id, WIDTH, HEIGHT, r->screen_cols,
+                   r->screen_rows, more_chunks ? 1 : 0);
         } else {
             /* Continuation chunks */
-            if (r->frame_number == 0) {
-                printf("\033_Gm=%d;", more_chunks ? 1 : 0);
-            } else {
-                printf("\033_Ga=f,r=1,m=%d;", more_chunks ? 1 : 0);
-            }
+            printf("\033_Gm=%d;", more_chunks ? 1 : 0);
         }
 
         /* Transfer payload */
@@ -193,12 +158,6 @@ void renderer_render_frame(renderer_t *restrict r,
         fflush(stdout);
 
         encoded_offset += this_size;
-    }
-
-    /* For Kitty mode, animate the frame after first frame */
-    if (r->frame_number > 0) {
-        printf("\033_Ga=a,c=1,i=%ld;\033\\", r->kitty_id);
-        fflush(stdout);
     }
 
     /* On first frame, add newline to move cursor below image */
