@@ -14,6 +14,10 @@
 
 #include "../src/base64.h"
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+#include "../src/arch/neon-base64.h"
+#endif
+
 /* Correctness Tests */
 
 /* Test vector structure */

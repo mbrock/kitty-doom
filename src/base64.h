@@ -78,9 +78,6 @@ typedef size_t (*base64_encode_func_t)(const uint8_t *restrict input,
                                        size_t input_len,
                                        uint8_t *restrict output);
 
-/* Architecture-specific implementations (defined in arch/ headers) */
-#include "arch/neon-base64.h"
-
 /* Unified API: automatically selects best implementation */
 size_t base64_encode_auto(const uint8_t *restrict input,
                           size_t input_len,
