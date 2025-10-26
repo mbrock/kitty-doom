@@ -24,9 +24,9 @@ OBJS := $(patsubst src/%.c,$(OUT)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
 # Compiler and flags
-CC := cc
+CC := clang
 CFLAGS := -std=gnu11 -Wall -Wextra -O2 -g -Isrc -MMD -MP
-LDLIBS := -lpthread
+LDLIBS := -lpthread -lpizlo
 
 # NEON-specific flags (enabled on ARM/ARM64)
 # The NEON implementation will only be active if __aarch64__ or __ARM_NEON is defined
